@@ -1,0 +1,2 @@
+com.snms.sos:xml/network_security = 0x7f020000
+com.snms.sos:drawable/ic_launcher = 0x7f010000

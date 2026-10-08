@@ -1,0 +1,30 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Senior SOS Console</title>
+<style>body{font:14px system-ui;margin:0;background:#f4f6f8}header{background:#0a7d4f;color:#fff;padding:10px 16px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:12px;padding:12px}section{background:#fff;border-radius:8px;padding:12px;box-shadow:0 1px 3px #0002}button{margin:2px;padding:7px 11px;border:1px solid #888;border-radius:6px;background:#fafafa;cursor:pointer}.k button{width:56px;height:44px;font-size:18px}pre{background:#111;color:#8f8;padding:8px;max-height:300px;overflow:auto;font-size:12px;white-space:pre-wrap}h3{margin:0 0 8px}input,select{padding:6px;margin:2px}.s1{border-left:5px solid #e90}.s2{border-left:5px solid #d22}</style>
+<header><b>Senior Medication, Caregiver &amp; Two-Stage SOS</b> — simulator console (button phone · caretaker app · smart door)</header>
+<main>
+<section><h3>1 · Caregiver setup</h3><button onclick=seed()>Seed demo (caregiver, senior, caretakers A/B/C, medicine)</button><br><small>Senior at Chennai. A: 0.8km ₹80 ✔ · B: 1.2km ₹50 ✔ · C: 0.5km ₹100 ✘ unavailable</small><br>
+<button onclick=trig()>Medication time → IVR call</button><button onclick=sc()>Adherence score</button><button onclick=nt()>Caregiver notifications</button><button onclick=emerg()>Caregiver Stage-2</button></section>
+<section><h3>2 · Senior button phone (DTMF)</h3><div>Call #<b id=cid>-</b></div><div class=k><button onclick=dt(1)>1</button><button onclick=dt(2)>2</button><button onclick=dt(3)>3</button></div><small>1 Taken · 2 Later · 3 Missed</small><br>
+<b>Failures:</b><br><button onclick="st('busy')">Busy</button><button onclick="st('switched-off')">Switched off</button><button onclick="st('out-of-coverage')">No coverage</button><button onclick="st('no-answer')">No answer</button><br><small>3 failed attempts → Unreachable → Stage-1 SOS</small></section>
+<section class=s1><h3>3 · Stage-1 · Caretaker app</h3><select id=who><option>A<option>B<option>C</select><button onclick=rq()>Refresh requests</button><br>
+<button onclick=ans(true)>Accept</button><button onclick=ans(false)>Reject</button><br><b>Door (DTMF):</b> code <input id=code size=8><button onclick=door()>Dial &amp; unlock</button><br>
+<button onclick=arr()>Arrived</button><button onclick="res('A')">A Safe</button><button onclick="res('B')">B Needs attention</button><button onclick="res('C')">C Medical emergency</button></section>
+<section class=s2><h3>4 · Stage-2 · Emergency</h3><button onclick=sos()>SOS timeline (requests, door log, ambulance + saved address)</button><button onclick="api('/api/dev/age/200','POST').then(()=>api('/api/dev/tick','POST'))">Simulate caretaker no-response</button></section>
+<section style="grid-column:1/-1"><h3>API log</h3><pre id=L></pre></section></main>
+<script>
+const S={},$=i=>document.getElementById(i),L=$('L'),log=(t,o)=>L.textContent=`> ${t}\n${JSON.stringify(o,null,1)}\n\n`+L.textContent;
+async function api(p,m='GET',b,t){const r=await fetch(p,{method:m,headers:{'Content-Type':'application/json',...(t?{Authorization:'Bearer '+t}:{})},body:b?JSON.stringify(b):undefined});const j=await r.json();log(m+' '+p+' → '+r.status,j);return j}
+const R=Math.floor(Math.random()*1e6),reg=async(n,i,role)=>({...await api('/api/register','POST',{name:n,phone:`9${R}${i}`,password:'pass1234',role}),phone:`9${R}${i}`});
+async function seed(){S.cg=await reg('Caregiver',0,'caregiver');S.s=await api('/api/seniors','POST',{name:'Amma',phone:'9999999999',lang:'ta',address:'12 Beach Rd, Mylapore',landmark:'Near temple',pincode:'600004',city:'Chennai',state:'Tamil Nadu',lat:13.0827,lon:80.2707},S.cg.token);S.ct={};
+for(const [n,i,la,c,st] of [['A',1,.0072,80,'AVAILABLE'],['B',2,-.0108,50,'AVAILABLE'],['C',3,.0045,100,'UNAVAILABLE']]){const u=await reg('Caretaker '+n,i,'caretaker');await api('/api/caretaker/profile','POST',{lat:13.0827+la,lon:80.2707,cost:c,status:st,consent:true},u.token);S.ct[n]=u}
+S.m=await api(`/api/seniors/${S.s.id}/medications`,'POST',{name:'Metformin',dosage:'500mg',times:['08:00','20:00']},S.cg.token)}
+async function trig(){const r=await api('/api/dev/trigger/'+S.m.id,'POST',{});S.call=r.call_id;$('cid').textContent=S.call}
+async function dt(d){const r=await api('/ivr/dtmf','POST',{call_id:S.call,digit:String(d)});if(r.next_call_id){S.call=r.next_call_id;$('cid').textContent=S.call}}
+async function st(s){const r=await api('/ivr/status','POST',{call_id:S.call,status:s});if(r.next_call_id){S.call=r.next_call_id;$('cid').textContent=S.call}if(r.sos_id)S.sos=r.sos_id}
+const ct=()=>S.ct[$('who').value],sc=()=>api(`/api/seniors/${S.s.id}/score`,'GET',0,S.cg.token),nt=()=>api('/api/notifications','GET',0,S.cg.token),
+rq=async()=>{S.rq=await api('/api/caretaker/requests','GET',0,ct().token)},
+ans=async a=>{await rq();const r=S.rq[0];if(!r)return;const x=await api(`/api/caretaker/requests/${r.id}/respond`,'POST',{accept:a},ct().token);if(a){S.sos=r.sos_id;$('code').value=x.door_code||''}},
+door=()=>api('/ivr/door','POST',{secret:'gw-secret',from:ct().phone,digits:$('code').value+'#'}),
+arr=()=>api(`/api/sos/${S.sos}/arrive`,'POST',{},ct().token),res=o=>api(`/api/sos/${S.sos}/result`,'POST',{outcome:o},ct().token),
+sos=()=>api(`/api/seniors/${S.s.id}/sos`,'GET',0,S.cg.token),emerg=()=>api(`/api/seniors/${S.s.id}/emergency`,'POST',{},S.cg.token);
+</script>
